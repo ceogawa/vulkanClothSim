@@ -11,6 +11,9 @@
 #include <cstdlib>
 #include <vector>
 
+// This Vulkan Project was built using https://vulkan-tutorial.com/Introduction as a foundation
+// Claire Ogawa and Aidan Ream
+
 // VULKAN INFO AND TIPS
 // Vulkan tends to use structs to store/update info rather than function parameters
 //      object creation function parameters in Vulkan follow is:
@@ -19,6 +22,11 @@
 //      3. Pointer to the variable that stores the handle to the new object
 
 // TODO look more into "extensions" and what this means...
+
+// https://docs.vulkan.org/spec/latest/chapters/extensions.html#extendingvulkan-extensions
+// Extensions may define new Vulkan commands, structures, and enumerants. 
+
+
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -108,6 +116,8 @@ private:
     }
 
     void cleanup() {
+        // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
+        vkDestroyInstance(instance, nullptr); // nullptr is optional allocator callback
         glfwDestroyWindow(window);
         glfwTerminate();
     }
