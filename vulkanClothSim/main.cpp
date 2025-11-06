@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
+#include <vector>
 
 // VULKAN INFO AND TIPS
 // Vulkan tends to use structs to store/update info rather than function parameters
@@ -17,8 +18,12 @@
 //      2. Pointer to custom allocator callbacks (we are using default memory allocators)
 //      3. Pointer to the variable that stores the handle to the new object
 
+// TODO look more into "extensions" and what this means...
+
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
+
+using namespace std;
 
 class Application {
 public:
@@ -65,17 +70,32 @@ private:
         const char** glfwExtensions;
         glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount); // retrieve extensions
 
-        createInfo.enabledExtensionCount = glfwExtensionCount;
+        createInfo.enabledExtensionCount = glfwExtensionCount; // update struct
         createInfo.ppEnabledExtensionNames = glfwExtensions;
-        
+
+        cout << "number of required glfw extensions: " << glfwExtensionCount << endl;
         // TODO for now we have 0 enabled validation layers
         createInfo.enabledLayerCount = 0;
+
+        checkSupportedExtensions(); 
+
         // populate instance attribute
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create instance!");
+            throw runtime_error("Failed to create instance.");
         }
     }
 
+    // checks what extensions are supported by vulkan
+    void checkSupportedExtensions() {
+        uint32_t extensionCount = 0;
+        std::vector<VkExtensionProperties> extensions(extensionCount); // an array of VkExtensionProperties to store extension details
+        // takes in (filter extensions by layer, &numOfExtensions, arr of extension details)
+        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+        // document the number of available extensions
+        std::cout << "available vulkan extensions: " << extensionCount << endl;
+    }
+    
+    // connects application to vulkan
     void initVulkan() {
         createInstance();
     }
@@ -92,33 +112,6 @@ private:
         glfwTerminate();
     }
 };
-
-
-int sampleMain() {
-    glfwInit();
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan window", nullptr, nullptr);
-
-    uint32_t extensionCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-
-    std::cout << extensionCount << " extensions supported\n";
-
-    glm::mat4 matrix;
-    glm::vec4 vec;
-    auto test = matrix * vec;
-
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-    }
-
-    glfwDestroyWindow(window);
-
-    glfwTerminate();
-
-    return 0;
-}
 
 int main() {
     // create instance of sample app
