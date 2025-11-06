@@ -7,8 +7,53 @@
 #include <glm/mat4x4.hpp>
 
 #include <iostream>
+#include <stdexcept>
+#include <cstdlib>
 
-int main() {
+const uint32_t WIDTH = 800;
+const uint32_t HEIGHT = 600;
+
+class Application {
+public:
+    void run() {
+        initWindow();
+        initVulkan();
+        mainLoop();
+        cleanup();
+    }
+
+private:
+    GLFWwindow* window;
+
+    void initWindow() {
+        glfwInit(); // inits the library
+
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // disable defaulting to OpenGL
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // disabke window resizing for now
+
+        // window(width, height, title, specify monitor, openglOnly)
+        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr); // init default window
+    }
+
+    void initVulkan() {
+
+    }
+
+    // renders a single frame 
+    void mainLoop() {
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
+    }
+
+    void cleanup() {
+        glfwDestroyWindow(window);
+        glfwTerminate();
+    }
+};
+
+
+int sampleMain() {
     glfwInit();
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -32,4 +77,21 @@ int main() {
     glfwTerminate();
 
     return 0;
+}
+
+int main() {
+    // create instance of sample app
+    Application app;
+
+    try {
+        app.run();
+    }
+    catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl; // throw exception if app exe fails
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+
+    //sampleMain(); // TEST MAIN/POPUP WINDOW
 }
