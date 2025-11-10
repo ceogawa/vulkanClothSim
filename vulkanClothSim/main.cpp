@@ -89,16 +89,9 @@ private:
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo = &appInfo;
 
-        // Vulkan is a platform agnostic API, so we need extension to interface with the window system
-        // glfw can tell us which extensions we need
-        uint32_t glfwExtensionCount = 0;
-        const char** glfwExtensions;
-        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount); // retrieve extensions
-
-        createInfo.enabledExtensionCount = glfwExtensionCount; // update struct
-        createInfo.ppEnabledExtensionNames = glfwExtensions;
-
-        std::cout << "number of required glfw extensions: " << glfwExtensionCount << "\n";
+        auto extensions = getRequiredExtensions();
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        createInfo.ppEnabledExtensionNames = extensions.data();
 
         // now we are able to enable multiple validation layers if in debug mode
         if (enableValidationLayers) {
@@ -127,6 +120,24 @@ private:
         std::cout << "available vulkan extensions: " << extensionCount << "\n";
     }
     
+// Vulkan is a platform agnostic API, so we need extension to interface with the window system
+// glfw can tell us which extensions we need
+    std::vector<const char*> getRequiredExtensions() {
+        uint32_t glfwExtensionCount = 0;
+        const char** glfwExtensions;
+        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+       
+        std::cout << "number of required glfw extensions: " << glfwExtensionCount << "\n";
+
+        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+        if (enableValidationLayers) {
+            extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        }
+
+        return extensions;
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
