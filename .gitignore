@@ -14,4 +14,4 @@ vulkanClothSim/vulkanClothSim/Debug
 bin/x64/
 obj/x64/
 *.vcxproj.user
-
+*.vcxproj
