@@ -1,0 +1,5 @@
+﻿  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 139 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  vulkanClothSim.vcxproj -> C:\Users\aidan\graphics-projects\vulkanClothSim\x64\Release\vulkanClothSim.exe
