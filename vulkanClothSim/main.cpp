@@ -3,7 +3,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-//#include "include/ValidationLayerDebugging.hpp"
+#include "Debugging.hpp"
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
 
@@ -33,43 +33,12 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
-
-// enable Vulkan SDK validation layers
-const std::vector<const char*> validationLayers = {
-    "VK_LAYER_KHRONOS_validation" // bundled layer
-};
-
 // configuration variables to specify which layers to enable/disable
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-bool checkValidationLayerSupport() {
-    uint32_t layerCount;
-    // returns up to requested number of global layer properties
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-
-    std::vector<VkLayerProperties> availableLayers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-
-    // check if all of the layers in validationLayers exist in the availableLayers list
-    for (const char* layerName : validationLayers) {
-        bool layerFound = false;
-
-        for (const auto& layerProperties : availableLayers) {
-            if (strcmp(layerName, layerProperties.layerName) == 0) {
-                layerFound = true;
-                break;
-            }
-        }
-
-        if (!layerFound) { return false; }
-    }
-
-    return true;
-}
 
 class Application {
 public:
@@ -84,6 +53,11 @@ private:
     GLFWwindow* window;
     VkInstance instance;
 
+    // enable Vulkan SDK validation layers
+    const std::vector<const char*> validationLayers = {
+        "VK_LAYER_KHRONOS_validation" // bundled layer
+    };
+
     void initWindow() {
         glfwInit(); // inits the library
 
@@ -97,7 +71,7 @@ private:
     // creates instance of vulkan (connection between app and the Vulkan library)
     void createInstance() {
 
-        if (enableValidationLayers && !checkValidationLayerSupport()) {
+        if (enableValidationLayers && !checkValidationLayerSupport(validationLayers)) {
             throw std::runtime_error("validation layers requested, but not available!");
         }
 
