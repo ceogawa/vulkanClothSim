@@ -3,12 +3,14 @@
 *.log
 *.tlog
 *.idb
+*.pdb
 [Dd]ebug/
 [Dd]ebug/x64/
 [Dd]ebugPublic/x64/
 [Rr]elease/x64/
 [Rr]eleases/x64/
+vulkanClothSim/x64/Release
+vulkanClothSim/vulkanClothSim/Debug
 bin/x64/
 obj/x64/
 *.vcxproj.user
-
