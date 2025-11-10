@@ -3,6 +3,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+//#include "include/ValidationLayerDebugging.hpp"
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
 
@@ -15,23 +16,60 @@
 // Claire Ogawa and Aidan Ream
 
 // VULKAN INFO AND TIPS
+// Vulkan designed for minimal driver overhead
+// 
 // Vulkan tends to use structs to store/update info rather than function parameters
 //      object creation function parameters in Vulkan follow is:
 //      1. Pointer to struct with creation info
 //      2. Pointer to custom allocator callbacks (we are using default memory allocators)
 //      3. Pointer to the variable that stores the handle to the new object
 
-// TODO look more into "extensions" and what this means...
-
 // https://docs.vulkan.org/spec/latest/chapters/extensions.html#extendingvulkan-extensions
 // Extensions may define new Vulkan commands, structures, and enumerants. 
-
+// Validation layers are optional components that hook into Vulkan function calls to apply additional operations.
+//  - help us with error handling
 
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
-using namespace std;
+
+// enable Vulkan SDK validation layers
+const std::vector<const char*> validationLayers = {
+    "VK_LAYER_KHRONOS_validation" // bundled layer
+};
+
+// configuration variables to specify which layers to enable/disable
+#ifdef NDEBUG
+const bool enableValidationLayers = false;
+#else
+const bool enableValidationLayers = true;
+#endif
+
+bool checkValidationLayerSupport() {
+    uint32_t layerCount;
+    // returns up to requested number of global layer properties
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+    std::vector<VkLayerProperties> availableLayers(layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+    // check if all of the layers in validationLayers exist in the availableLayers list
+    for (const char* layerName : validationLayers) {
+        bool layerFound = false;
+
+        for (const auto& layerProperties : availableLayers) {
+            if (strcmp(layerName, layerProperties.layerName) == 0) {
+                layerFound = true;
+                break;
+            }
+        }
+
+        if (!layerFound) { return false; }
+    }
+
+    return true;
+}
 
 class Application {
 public:
@@ -58,10 +96,15 @@ private:
 
     // creates instance of vulkan (connection between app and the Vulkan library)
     void createInstance() {
+
+        if (enableValidationLayers && !checkValidationLayerSupport()) {
+            throw std::runtime_error("validation layers requested, but not available!");
+        }
+
         VkApplicationInfo appInfo{};
         // specify struct info
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "Hello Triangle";
+        appInfo.pApplicationName = "Triangle";
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);  // unsigned int - version number of the app (major, minor, patch)
         appInfo.pEngineName = "No Engine";
         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -81,15 +124,22 @@ private:
         createInfo.enabledExtensionCount = glfwExtensionCount; // update struct
         createInfo.ppEnabledExtensionNames = glfwExtensions;
 
-        cout << "number of required glfw extensions: " << glfwExtensionCount << endl;
-        // TODO for now we have 0 enabled validation layers
-        createInfo.enabledLayerCount = 0;
+        std::cout << "number of required glfw extensions: " << glfwExtensionCount << "\n";
+
+        // now we are able to enable multiple validation layers if in debug mode
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        }
+        else {
+            createInfo.enabledLayerCount = 0;
+        }
 
         checkSupportedExtensions(); 
 
         // populate instance attribute
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
-            throw runtime_error("Failed to create instance.");
+            throw std::runtime_error("Failed to create instance.");
         }
     }
 
@@ -100,7 +150,7 @@ private:
         // takes in (filter extensions by layer, &numOfExtensions, arr of extension details)
         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
         // document the number of available extensions
-        std::cout << "available vulkan extensions: " << extensionCount << endl;
+        std::cout << "available vulkan extensions: " << extensionCount << "\n";
     }
     
     // connects application to vulkan
@@ -131,7 +181,7 @@ int main() {
         app.run();
     }
     catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl; // throw exception if app exe fails
+        std::cerr << e.what() << "\n"; // throw exception if app exe fails
         return EXIT_FAILURE;
     }
 
