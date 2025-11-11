@@ -52,6 +52,7 @@ public:
 private:
     GLFWwindow* window;
     VkInstance instance;
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // init physical device/graphics card
 
     // enable Vulkan SDK validation layers
     const std::vector<const char*> validationLayers = {
@@ -138,9 +139,46 @@ private:
         return extensions;
     }
 
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties deviceProperties;
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+
+    }
+
+    // check for suitable graphics card, selects one
+    void pickPhysicalDevice() { 
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr); // query number of graphics card
+
+        if (deviceCount == 0) {
+            throw std::runtime_error("failed to find GPUs with Vulkan support!"); // this would be bad and sad
+        }
+
+        std::vector<VkPhysicalDevice> devices(deviceCount); // holds all device handles
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        // TODO add check to find BEST suited device not just FIRST device
+        for (const auto& device : devices) { // check all devices for suitable graphics card
+            if (isDeviceSuitable(device)) {
+                physicalDevice = device;
+                break;
+            }
+        }
+
+        if (physicalDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
+        pickPhysicalDevice();
     }
 
     // renders a single frame 
