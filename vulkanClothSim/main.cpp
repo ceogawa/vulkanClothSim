@@ -55,6 +55,7 @@ private:
     VkInstance instance;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // init physical device/graphics card
     VkDevice device; //Logical Device
+    VkSurfaceKHR surface; // window surface to screen
 
     // enable Vulkan SDK validation layers
     const std::vector<const char*> validationLayers = {
@@ -113,6 +114,12 @@ private:
         }
 
 
+    }
+
+    void createSurface() {
+        if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create window surface!");
+        }
     }
 
     // checks what extensions are supported by vulkan
@@ -200,8 +207,7 @@ private:
         //TODO: I think we will likely need to come back to this to activate compute shaders -A
         VkPhysicalDeviceFeatures deviceFeatures{};
 
-        
-        //Creating the logical device struct
+        // creating the logical device struct
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
          
@@ -268,8 +274,10 @@ private:
     // connects application to vulkan
     void initVulkan() {
         createInstance();
+        createSurface(); // platform agnostic with GLFW
         pickPhysicalDevice();
         createLogicalDevice();
+
     }
 
     // renders a single frame 
@@ -281,6 +289,7 @@ private:
 
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr); // nullptr is optional allocator callback
         glfwDestroyWindow(window);
         glfwTerminate();
