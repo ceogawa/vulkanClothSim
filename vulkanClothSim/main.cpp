@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <vector>
+#include <optional>
 
 // This Vulkan Project was built using https://vulkan-tutorial.com/Introduction as a foundation
 // Claire Ogawa and Aidan Ream
@@ -53,6 +54,7 @@ private:
     GLFWwindow* window;
     VkInstance instance;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // init physical device/graphics card
+    VkDevice device; //Logical Device
 
     // enable Vulkan SDK validation layers
     const std::vector<const char*> validationLayers = {
@@ -109,6 +111,12 @@ private:
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create instance.");
         }
+
+        //Create logical device
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create logical device!");
+        }
+
     }
 
     // checks what extensions are supported by vulkan
@@ -140,12 +148,16 @@ private:
     }
 
     bool isDeviceSuitable(VkPhysicalDevice device) {
+        //Check if the machine has a discrete GPU to use
         VkPhysicalDeviceProperties deviceProperties;
         VkPhysicalDeviceFeatures deviceFeatures;
         vkGetPhysicalDeviceProperties(device, &deviceProperties);
         vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        //Check if device has queue family funcionality we require
+        QueueFamilyIndices indices = findQueueFamilies(device);
+       
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && indices.isComplete();
 
     }
 
@@ -161,7 +173,6 @@ private:
         std::vector<VkPhysicalDevice> devices(deviceCount); // holds all device handles
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-        // TODO add check to find BEST suited device not just FIRST device
         for (const auto& device : devices) { // check all devices for suitable graphics card
             if (isDeviceSuitable(device)) {
                 physicalDevice = device;
@@ -175,10 +186,89 @@ private:
 
     }
 
+    //Creating a logical device to interface with the physical device
+    void createLogicalDevice() {
+        //Create device queue info struct
+        QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+        queueCreateInfo.queueCount = 1;
+        
+        /*assign priorities to queues to influence the scheduling of command buffer execution using floats between 0.0 and 1.0
+        This is required even if there is only a single queue:*/
+        float queuePriority = 1.0f; 
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        //This is where we specify the physical device features we're gonna be using 
+        //TODO: I think we will likely need to come back to this to activate compute shaders -A
+        VkPhysicalDeviceFeatures deviceFeatures{};
+
+        
+        //Creating the logical device struct
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+         
+        createInfo.pQueueCreateInfos = &queueCreateInfo; //pointer to the queue info
+        createInfo.queueCreateInfoCount = 1;
+
+        createInfo.pEnabledFeatures = &deviceFeatures; //pointer to the device features
+
+        //Set up validation layers to work with older versions of Vulkan
+        createInfo.enabledExtensionCount = 0;
+
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        }
+        else {
+            createInfo.enabledLayerCount = 0;
+        }
+    }
+
+    /*Queue Families set up
+    *A queue family is essentially groups on the GPU hardware that are designed to be handled together
+    * Examples include geometry, computes, etc
+    */
+
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+       
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
+
+    };
+
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+       //Investigates the Hardware for queue families
+        QueueFamilyIndices indices;
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+
+            if (indices.isComplete()) {
+                break;
+            }
+
+            i++;
+        }
+
+        return indices;
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
         pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     // renders a single frame 
