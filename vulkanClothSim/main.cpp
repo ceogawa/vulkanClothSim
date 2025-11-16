@@ -66,6 +66,8 @@ private:
     std::vector<VkImage> swapChainImages;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
+    std::vector<VkImageView> swapChainImageViews;
+
     const std::vector<const char*> deviceExtensions = {
            VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
@@ -469,6 +471,39 @@ private:
 
     }
 
+    void createImageViews() {
+        swapChainImageViews.resize(swapChainImages.size()); // to fit all img views
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            VkImageViewCreateInfo createInfo{}; // per view
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = swapChainImages[i]; // cur img
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // specifies how to treat imgs (1d tex/2d tex, etc.)
+            createInfo.format = swapChainImageFormat; 
+
+            // components can be used for channel mapping, this is the default mapping 
+            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+            // img purpose and which part of img
+            // imgs used as COLOR TARGETS
+            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1; // default, not stereographic...
+
+            // create single image view, store in array
+            if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create image views!");
+            }
+
+
+
+        }
+
+    }
+
 
 
     // connects application to vulkan
@@ -477,7 +512,8 @@ private:
         createSurface(); // platform agnostic with GLFW
         pickPhysicalDevice();
         createLogicalDevice();
-        createSwapChain();
+        createSwapChain(); //  get format, present mode, extent
+        createImageViews(); // sets up using images as textures
     }
 
     // renders a single frame 
@@ -489,6 +525,10 @@ private:
 
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
+        for (auto imageView : swapChainImageViews) {
+            vkDestroyImageView(device, imageView, nullptr); // manual cleanup because manual creation
+        }
+
         vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroyDevice(device, nullptr); 
         vkDestroySurfaceKHR(instance, surface, nullptr);
