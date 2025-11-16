@@ -146,7 +146,6 @@ private:
         vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
         return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-
     }
 
     // check for suitable graphics card, selects one
