@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <vector>
 #include <optional>
+#include <set>
 
 // This Vulkan Project was built using https://vulkan-tutorial.com/Introduction as a foundation
 // Claire Ogawa and Aidan Ream
@@ -56,6 +57,8 @@ private:
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // init physical device/graphics card
     VkDevice device; //Logical Device
     VkSurfaceKHR surface; // window surface to screen
+    VkQueue graphicsQueue;
+    VkQueue presentQueue;
 
     // enable Vulkan SDK validation layers
     const std::vector<const char*> validationLayers = {
@@ -190,18 +193,25 @@ private:
     }
 
     //Creating a logical device to interface with the physical device
+    // Currently configures for multiple queues, even if they are likely the same queues
     void createLogicalDevice() {
         //Create device queue info struct
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-        queueCreateInfo.queueCount = 1;
-        
-        /*assign priorities to queues to influence the scheduling of command buffer execution using floats between 0.0 and 1.0
-        This is required even if there is only a single queue:*/
-        float queuePriority = 1.0f; 
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
+        ///*assign priorities to queues to influence the scheduling of command buffer execution using floats between 0.0 and 1.0
+        //This is required even if there is only a single queue:*/
+        float queuePriority = 1.0f; // TODO look into meaning -c
+        for (uint32_t queueFamily : uniqueQueueFamilies) {
+            VkDeviceQueueCreateInfo queueCreateInfo{}; 
+            queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex = queueFamily;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
 
         //This is where we specify the physical device features we're gonna be using 
         //TODO: I think we will likely need to come back to this to activate compute shaders -A
@@ -209,10 +219,11 @@ private:
 
         // creating the logical device struct
         VkDeviceCreateInfo createInfo{};
+
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
          
-        createInfo.pQueueCreateInfos = &queueCreateInfo; //pointer to the queue info
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+        createInfo.pQueueCreateInfos = queueCreateInfos.data(); //pointer to the queue info
 
         createInfo.pEnabledFeatures = &deviceFeatures; //pointer to the device features
 
@@ -227,10 +238,15 @@ private:
             createInfo.enabledLayerCount = 0;
         }
 
-        //Create logical device
+        // create logical device
         if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
             throw std::runtime_error("failed to create logical device!");
         }
+
+        // retrieves queue handle
+        vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+        vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+
     }
 
     /*Queue Families set up
@@ -239,10 +255,11 @@ private:
     */
 
     struct QueueFamilyIndices {
-        std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> graphicsFamily; // init for drawing to buffer 
+        std::optional<uint32_t> presentFamily; // init queue for writing to surface 
        
         bool isComplete() {
-            return graphicsFamily.has_value();
+            return graphicsFamily.has_value() && presentFamily.has_value();
         }
 
     };
@@ -251,14 +268,22 @@ private:
        //Investigates the Hardware for queue families
         QueueFamilyIndices indices;
         uint32_t queueFamilyCount = 0;
+
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
         std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
         int i = 0;
         for (const auto& queueFamily : queueFamilies) {
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                indices.graphicsFamily = i;
+                indices.graphicsFamily = i; // init for drawing to buff
+            }
+
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            if (presentSupport) {
+                indices.presentFamily = i; // init for drawing to surface TODO check for combined support -c
             }
 
             if (indices.isComplete()) {
@@ -289,6 +314,7 @@ private:
 
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
+        vkDestroyDevice(device, nullptr); 
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr); // nullptr is optional allocator callback
         glfwDestroyWindow(window);
