@@ -1,4 +1,6 @@
 .vs/
+resources/*.bat
+resources/*.spv
 *.user
 *.log
 *.tlog
