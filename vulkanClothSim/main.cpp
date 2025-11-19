@@ -60,9 +60,9 @@ private:
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // init physical device/graphics card
     VkDevice device; //Logical Device
     VkSurfaceKHR surface; // window surface to screen
-    VkQueue graphicsQueue;
+    VkQueue graphicsQueue; //Graphics queue and Present queue families are often the same, but hardware dependent so we handle both.
     VkQueue presentQueue;
-    VkSwapchainKHR swapChain;
+    VkSwapchainKHR swapChain; //Swap chain is how vulkan handles the frames in order- framebuffer settings and vsync settings etc
     std::vector<VkImage> swapChainImages;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
@@ -227,14 +227,14 @@ private:
     //Creating a logical device to interface with the physical device
     // Currently configures for multiple queues, even if they are likely the same queues
     void createLogicalDevice() {
-        //Create device queue info struct
+        //Create device queue info struct to initialize the vulkan object
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
         
-         ///*assign priorities to queues to influence the scheduling of command buffer execution using floats between 0.0 and 1.0
-        //This is required even if there is only a single queue:*/
+        //assign priorities to queues to influence the scheduling of command buffer execution using floats between 0.0 and 1.0
+        //This is required even if there is only a single queue:
         float queuePriority = 1.0f; // TODO look into meaning -c
         for (uint32_t queueFamily : uniqueQueueFamilies) {
             VkDeviceQueueCreateInfo queueCreateInfo{}; 
@@ -282,10 +282,9 @@ private:
 
     }
 
-    /*Queue Families set up
-    *A queue family is essentially groups on the GPU hardware that are designed to be handled together
-    * Examples include geometry, computes, etc
-    */
+    //Queue Families set up
+    //A queue family is essentially groups on the GPU hardware that are designed to be handled together
+    // Examples include geometry, computes, etc
 
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily; // init for drawing to buffer 
@@ -375,12 +374,16 @@ private:
     }
 
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+        //Present modes have positives and negatives, if we are running into visual bugs we should test with others
         for (const auto& availablePresentMode : availablePresentModes) {
             if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                //Mailbox mode 
+                //Instead of blocking the application when the queue is full,
+                //the images that are already queued are simply replaced with the newer ones
                 return availablePresentMode;
             }
         }
-
+        //Traditional VSync, availible on all hardware
         return VK_PRESENT_MODE_FIFO_KHR;
     }
 
@@ -414,7 +417,7 @@ private:
         VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
         VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
-        //Sets the number of images in the swapchain, 0 is no max, we are doing a specified number 
+        //Sets the number of images in the swapchain, 0 is a special value meaning no max, we are doing a specified number 
         uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
         if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
             imageCount = swapChainSupport.capabilities.maxImageCount;
@@ -432,7 +435,7 @@ private:
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         
-        //Updating the Graphics Queue Family with our new information :)
+        //Updating the Graphics Queue Family with our new information
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
         uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 
@@ -450,7 +453,7 @@ private:
         //Lets us do transformations on the images that are inside a given buffer, i.e. Rotations or flipping
         createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
 
-        //If windows blend alphas together 
+        //Vulkan has options to blend multiple windows color values together, we are just using opaque windows (standard)
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 
         createInfo.presentMode = presentMode;
@@ -467,8 +470,6 @@ private:
         vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
         swapChainImageFormat = surfaceFormat.format;
         swapChainExtent = extent;
-
-
     }
 
     void createImageViews() {
@@ -497,8 +498,6 @@ private:
             if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create image views!");
             }
-
-
 
         }
 
