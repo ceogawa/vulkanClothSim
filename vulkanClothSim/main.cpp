@@ -87,6 +87,7 @@ private:
     //Fences are used to pause the CPU until a GPU process is complete used 
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
+    bool framebufferResized = false; // in case driver doesnt catch resizing
 
     const std::vector<const char*> deviceExtensions = {
            VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -101,10 +102,17 @@ private:
         glfwInit(); // inits the library
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // disable defaulting to OpenGL
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // disabke window resizing for now
+        //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // disabke window resizing for now
 
         // window(width, height, title, specify monitor, openglOnly)
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr); // init default window
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+    }
+
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+        auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        app->framebufferResized = true;
     }
 
     // creates instance of vulkan (connection between app and the Vulkan library)
@@ -490,6 +498,28 @@ private:
         vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
         swapChainImageFormat = surfaceFormat.format;
         swapChainExtent = extent;
+    }
+
+    void cleanupSwapChain() {
+
+        for (auto framebuffer : swapChainFramebuffers) {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+
+        for (auto imageView : swapChainImageViews) {
+            vkDestroyImageView(device, imageView, nullptr); // manual cleanup because manual creation
+        }
+
+        vkDestroySwapchainKHR(device, swapChain, nullptr);
+
+    }
+
+    void recreateSwapChain() {
+        vkDeviceWaitIdle(device);
+        cleanupSwapChain();
+        createSwapChain();
+        createImageViews();
+        createFramebuffers();
     }
 
     void createImageViews() {
@@ -947,7 +977,19 @@ private:
 
         //Getting the next frame from the swap chain:
         uint32_t imageIndex;
-        vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        //vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || result == framebufferResized) {
+            framebufferResized = false;
+            recreateSwapChain();
+        }
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            throw std::runtime_error("failed to acquire swap chain image!");
+        }
+
+        // Only reset the fence if we are submitting work
+        vkResetFences(device, 1, &inFlightFences[currentFrame]);
         
         //Recording the commandbuffer
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -997,11 +1039,9 @@ private:
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
 
-        vkDestroyCommandPool(device, commandPool, nullptr);
+        cleanupSwapChain();
 
-        for (auto framebuffer : swapChainFramebuffers) {
-            vkDestroyFramebuffer(device, framebuffer, nullptr);
-        }
+        vkDestroyCommandPool(device, commandPool, nullptr);
 
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr); 
@@ -1014,11 +1054,6 @@ private:
             vkDestroyFence(device, inFlightFences[i], nullptr);
         }
 
-        for (auto imageView : swapChainImageViews) {
-            vkDestroyImageView(device, imageView, nullptr); // manual cleanup because manual creation
-        }
-
-        vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroyDevice(device, nullptr); 
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr); // nullptr is optional allocator callback
