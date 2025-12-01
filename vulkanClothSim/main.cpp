@@ -77,6 +77,14 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers; // hold the framebuffers
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer; 
+    //Semaphores and fences are the main advantage of Vulkan, gives us control of the order for all processes
+    //Semaphores----
+    // Semphores are signals between async gpu processes used to decide what order things happen
+    VkSemaphore imageAvailableSemaphore;
+    VkSemaphore renderFinishedSemaphore;
+    //Fences
+    //Fences are used to pause the CPU until a GPU process is complete used 
+    VkFence inFlightFence;
 
     const std::vector<const char*> deviceExtensions = {
            VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -541,7 +549,7 @@ private:
         auto fragShaderCode = readFile("../resources/frag.spv");
         std::cout << "check length of vert buffer: " << vertShaderCode.size() << "\n";
         std::cout << "check length of frag buffer: " << fragShaderCode.size() << "\n";
-
+        
         // create module
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -739,6 +747,23 @@ private:
         renderPassInfo.subpassCount = 1;
         renderPassInfo.pSubpasses = &subpass;
 
+        //Managing when subpasses happen before and after each render loop
+        //These options sets up waiting until the color attachment is done
+ 
+        VkSubpassDependency dependency{};
+        dependency.srcSubpass = VK_SUBPASS_EXTERNAL; //implicit subpass which happens before every render loop
+        dependency.dstSubpass = 0; //implicit subpass which happens after every render loop
+
+        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.srcAccessMask = 0;
+
+        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        renderPassInfo.dependencyCount = 1;
+        renderPassInfo.pDependencies = &dependency;
+
+
         if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
             throw std::runtime_error("failed to create render pass!");
         }
@@ -852,6 +877,31 @@ private:
         }
     }
 
+    void createSyncObjects() {
+        //Creating Syncronization semephores and fences
+        //Populating semaphore struct
+        VkSemaphoreCreateInfo semaphoreInfo{};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        //Populating fenceInfo struct
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        /* Okay so... Because we check the fence on the first draw call before we ever interact with the fence
+        * we will run into a problem where we are stuck waiting at the first draw. The create signaled bit means
+        * we are creating the fence in the signaled state so that on the first drawFrame call we are chilling
+        * and can pass -A
+        */
+
+        //Creating the 2 semaphores and 1 fence
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
+            vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create semaphores!");
+        }
+
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
@@ -865,17 +915,75 @@ private:
         createFramebuffers(); 
         createCommandPool();
         createCommandBuffer();
+        createSyncObjects();
     }
 
     // renders a single frame 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
+    }
+
+    void drawFrame() {
+        //Pause CPU until fences are cleared so we have the async info we need to continue
+        //Note: we need to create the fence signaled already so the first drawFrame call can get past this step
+        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        //Takes an array of fences and waits for one or all. VK_TRUE here indicates waiting for all, UINT64_MAX effectivly disables timeout
+        vkResetFences(device, 1, &inFlightFence); //Resets fence to unsignaled state
+
+        //Getting the next frame from the swap chain:
+        uint32_t imageIndex;
+        vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+        
+        //Recording the commandbuffer
+        vkResetCommandBuffer(commandBuffer, 0);
+        recordCommandBuffer(commandBuffer, imageIndex);
+
+        //Submitting the Command Buffer (Done with a struct!)----------
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        //Waiting on the color attachment stage, this means the vertex shader and such can be excecuted before the image is availible
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        //Which command buffer are we submitting
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+        //Submit
+        VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+        if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+            throw std::runtime_error("failed to submit draw command buffer!");
+        }
+        
+        //Submitting the result back to the swap chain
+
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        //Which semaphores to wait for
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+
+        VkSwapchainKHR swapChains[] = { swapChain };
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapChains;
+        presentInfo.pImageIndices = &imageIndex;
+        //presentInfo.pResults = nullptr; //Optional
+        //checks for every individual swap chain if presentation was successful, we just have one so we can use return val
+
+        vkQueuePresentKHR(presentQueue, &presentInfo);        
+
+
     }
 
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
+
         vkDestroyCommandPool(device, commandPool, nullptr);
 
         for (auto framebuffer : swapChainFramebuffers) {
@@ -885,6 +993,11 @@ private:
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr); 
         vkDestroyRenderPass(device, renderPass, nullptr);
+       
+        //No more syncronization necessary
+        vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+        vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+        vkDestroyFence(device, inFlightFence, nullptr);
 
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr); // manual cleanup because manual creation
