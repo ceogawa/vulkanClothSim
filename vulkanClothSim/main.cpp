@@ -44,7 +44,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 
 
 const std::vector<Vertex> vertices = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
     {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
     {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
@@ -88,6 +88,8 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers; // hold the framebuffers
     VkCommandPool commandPool;
     std::vector<VkCommandBuffer> commandBuffers; 
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
     //Semaphores and fences are the main advantage of Vulkan, gives us control of the order for all processes
     //Semaphores----
     // Semphores are signals between async gpu processes used to decide what order things happen
@@ -620,7 +622,7 @@ private:
 
         VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
         
-        // sets up BINDING and ATTRIBUTE DESCRIPTIONS
+        // sets up BINDING and ATTRIBUTE DESCRIPTIONS for the vertex buffer
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
@@ -906,14 +908,22 @@ private:
         scissor.extent = swapChainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        // draw our hello triangle (3 verts, 1 noninstanced rendering, offset into ver buffer, offset into instance)
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        // Send in the vertex buffer to display our triangle
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        VkBuffer vertexBuffers[] = { vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
+        //vertecies.size() is how many vertices to draw
+        vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+       
         vkCmdEndRenderPass(commandBuffer);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
             throw std::runtime_error("failed to record command buffer!");
         }
+
+
 
     }
 
@@ -967,6 +977,58 @@ private:
 
     }
 
+    void createVertexBuffer() {
+        //Creates the vertex buffer
+        //-- arbitrary memory dedicated so the GPU can access it to pass vertex data along
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create vertex buffer!");
+        }
+
+        //Allocating Memory
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+       
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate vertex buffer memory!");
+        }
+        //If Memory allocation was successful, bind it to the vertex buffer
+        vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+        //Now we need to put our data into the vertex buffer
+        void* data;
+        vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+        //Here we are memcopying our data from our vertecies over to the area?
+        // TODO maybe change this to not just occur when we create the buffer
+        memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+        vkUnmapMemory(device, vertexBufferMemory);
+
+    }
+
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("failed to find suitable memory type!");
+    }
+
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
@@ -979,6 +1041,7 @@ private:
         createGraphicsPipeline(); 
         createFramebuffers(); 
         createCommandPool();
+        createVertexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -1069,8 +1132,10 @@ private:
 
     void cleanup() {
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
-
         cleanupSwapChain();
+
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vkFreeMemory(device, vertexBufferMemory, nullptr);
 
         vkDestroyCommandPool(device, commandPool, nullptr);
 
