@@ -936,8 +936,6 @@ private:
             throw std::runtime_error("failed to record command buffer!");
         }
 
-
-
     }
 
     // specifies the command pool and number of buffers to allocate
