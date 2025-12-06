@@ -13,6 +13,11 @@
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/gtc/matrix_transform.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+//Download from https://github.com/nothings/stb/blob/master/stb_image.h and then add to dependancy path
+//Check "TextureMapping/Images" section of vulkan tutorial
+
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
