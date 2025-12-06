@@ -131,6 +131,12 @@ private:
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
 
+    // img variables
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+
+
     //Semaphores and fences are the main advantage of Vulkan, gives us control of the order for all processes
     //Semaphores----
     // Semphores are signals between async gpu processes used to decide what order things happen
@@ -151,9 +157,6 @@ private:
         "VK_LAYER_KHRONOS_validation" // bundled layer
     };
 
-    // img variables
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
 
     void initWindow() {
         glfwInit(); // inits the library
@@ -587,34 +590,61 @@ private:
         createFramebuffers();
     }
 
-    void createImageViews() {
-        swapChainImageViews.resize(swapChainImages.size()); // to fit all img views
-        for (size_t i = 0; i < swapChainImages.size(); i++) {
-            VkImageViewCreateInfo createInfo{}; // per view
-            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image = swapChainImages[i]; // cur img
-            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // specifies how to treat imgs (1d tex/2d tex, etc.)
-            createInfo.format = swapChainImageFormat; 
+    VkImageView createImageView(VkImage image, VkFormat format) {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
 
-            // components can be used for channel mapping, this is the default mapping 
-            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-            // img purpose and which part of img
-            // imgs used as COLOR TARGETS
-            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            createInfo.subresourceRange.baseMipLevel = 0;
-            createInfo.subresourceRange.levelCount = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount = 1; // default, not stereographic...
-
-            // create single image view, store in array
-            if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create image views!");
-            }
-
+        VkImageView imageView;
+        if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create image view!");
         }
+
+        return imageView;
+    }
+
+    void createImageViews() {
+
+        swapChainImageViews.resize(swapChainImages.size());
+
+        for (uint32_t i = 0; i < swapChainImages.size(); i++) {
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+        }
+
+        //swapChainImageViews.resize(swapChainImages.size()); // to fit all img views
+        //for (size_t i = 0; i < swapChainImages.size(); i++) {
+        //    VkImageViewCreateInfo createInfo{}; // per view
+        //    createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        //    createInfo.image = swapChainImages[i]; // cur img
+        //    createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // specifies how to treat imgs (1d tex/2d tex, etc.)
+        //    createInfo.format = swapChainImageFormat; 
+
+        //    // components can be used for channel mapping, this is the default mapping 
+        //    createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        //    createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        //    createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        //    createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        //    // img purpose and which part of img
+        //    // imgs used as COLOR TARGETS
+        //    createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        //    createInfo.subresourceRange.baseMipLevel = 0;
+        //    createInfo.subresourceRange.levelCount = 1;
+        //    createInfo.subresourceRange.baseArrayLayer = 0;
+        //    createInfo.subresourceRange.layerCount = 1; // default, not stereographic...
+
+        //    // create single image view, store in array
+        //    if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
+        //        throw std::runtime_error("failed to create image views!");
+        //    }
+
+        //}
 
     }
 
@@ -1346,6 +1376,11 @@ private:
         }
     }
 
+    void createTextureImageView() {
+        // images are accessed through image views
+        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    }
+
     void createTextureImage() {
         // using command buffers, load an image and upload it into a Vulkan image object
         int texWidth, texHeight, texChannels;
@@ -1446,6 +1481,7 @@ private:
         createFramebuffers(); 
         createCommandPool();
         createTextureImage();
+        createTextureImageView();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -1550,6 +1586,7 @@ private:
         // CLEAN UP ALL OBJECTS BEFORE DESTROYING INSTANCE
         cleanupSwapChain();
 
+        vkDestroyImageView(device, textureImageView, nullptr);
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
 
