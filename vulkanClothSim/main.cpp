@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <chrono>
@@ -48,9 +49,11 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 
 //MVP 
 struct UniformBufferObject {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+    //Alignas is a c++ feature to make sure that the uniforms we are sending to the shader are aligned properlly.
+    //CLAIRE!!! Look into this on the bottom of "Descriptor Pool and Sets" they explain it better than I could :)
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
 };
 
 const std::vector<Vertex> vertices = {
