@@ -923,25 +923,8 @@ private:
         subpass.pColorAttachments = &colorAttachmentRef;
         subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
-
-
-
         //Managing when subpasses happen before and after each render loop
         //These options sets up waiting until the color attachment is done
- 
-        //VkSubpassDependency dependency{};
-        //dependency.srcSubpass = VK_SUBPASS_EXTERNAL; //implicit subpass which happens before every render loop
-        //dependency.dstSubpass = 0; //implicit subpass which happens after every render loop
-
-        //dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        //dependency.srcAccessMask = 0;
-
-        //dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        //dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-        //renderPassInfo.dependencyCount = 1;
-        //renderPassInfo.pDependencies = &dependency;
-
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         dependency.dstSubpass = 0;
@@ -970,9 +953,6 @@ private:
     void createFramebuffers() {
         swapChainFramebuffers.resize(swapChainImageViews.size());
 
-
-
-
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
 
             std::array<VkImageView, 2> attachments = {
@@ -993,8 +973,6 @@ private:
                 throw std::runtime_error("failed to create framebuffer!");
             }
         }
-
-
     }
 
     // allows us to make draw calls
@@ -1030,10 +1008,6 @@ private:
 
         renderPassInfo.renderArea.offset = { 0, 0 }; 
         renderPassInfo.renderArea.extent = swapChainExtent; // render area same as swap chian
-
-        //VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} }; // default color
-        //renderPassInfo.clearValueCount = 1;
-        //renderPassInfo.pClearValues = &clearColor; // pass default
 
         std::array<VkClearValue, 2> clearValues{};
         clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
