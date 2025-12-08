@@ -1,0 +1,131 @@
+//Copied from the OpenGL implementation video, will need to be adjusted to fit Vulkan
+//Basically use as sudo code :)
+#version 450
+
+layout(local_size_x = 10, local_size_y = 10) in
+//number of shader invocations in a given work group
+//for vulkan we may need a local_size_z, but not 
+//defining it defaults to 1
+
+//We need to decide best way to pass uniform info to the shader
+//Options: UBO, push constants, 3rd secret thing? 
+
+layout (binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec3 Gravity; //Vulkan y is upsidown, maybe change?
+    float ParticleMass; 
+    float ParticleInvMass; //Inverse Mass
+    float SpringK;
+    float RestLengthHoriz;
+    float RestLengthVert;
+    float RestLengthDiag;
+    float DeltaT;
+    float DampingConst;
+} ubo;
+
+
+//Buffers-- Need a vulkan specialized implementation. Probably doesnt need double buffer
+//position in
+layout(std140, binding = 1) buffer PosIn
+{
+    vec4 PositionIn[];
+};
+//position out
+layout(std140, binding = 2) buffer PosOut
+{
+    vec4 PositionOut[];
+};
+//velocity in
+layout(std140, binding = 3) buffer VelIn
+{
+    vec4 VelocityIn[];
+};
+//velocity out
+layout(std140, binding = 4) buffer VelOut
+{
+    vec4 VelocityOut[];
+};
+
+void main(){
+    uvec3 NumParticles = gl_NumWorkGroups * gl_WorkGroupSize;
+    uint Index = gl_GlobalInvocationID.y * NumParticles.x + gl_GlobalInvocationID.x;
+
+    vec3 p = vec3(PositionIn[Index]);
+
+    //Pinning 4 vertecies on the top by skipping them
+    //This lets the simulation work
+    if (gl_GlobalInvocationId.y == NumParticles.y - 1 &&
+    (gl_GlobalInvocationID.x == 0 ||
+    gl_GlobalInvocationID.x == NumParticles.x / 4 ||
+    gl_GlobalInvocationID.x == NumParticles.x * 2 / 4 ||
+    gl_GlobalInvocationID.x == NumParticles.x * 3 / 4 ||
+    gl_GlobalInvocationID.x == NumParticles.x - 1)){
+        PositionOut[Index] = vec4(p, 1.0);
+        return;
+    }
+    
+    //current source vertex we're considering for spring eq
+    vec3 v;
+
+    //Start with gravitational acceleration and add the spring
+    //forces from each neighbor
+
+    vec3 Force = ubo.Gravity * ParticleMass; //fma
+
+    //Now we will accumulate the force each particle around ours is influencing on the others 
+
+    // Particle Directly Above (check its not top row)
+    if (gl_GlobalInvocationID.y < NumParticles.y - 1){
+        v = PositionIn[Index + NumParticles.x].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthVert); //Spring Equation
+    }
+    //Particle Below
+    if (gl_GlobalInvocationID.y > 0) {
+        v = PositionIn[Index - NumParticles.x].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthVert);
+    }
+    //Particle Left
+    if (gl_GlobalInvocationID.x > 0) {
+        v = PositionIn[Index - 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthHoriz);
+    }
+    //Particle Right
+    if (gl_GlobalInvocationID.x < NumParticles.x - 1) {
+        v = PositionIn[Index + 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthHoriz);
+    }
+    //Diagonals
+    //Top Left
+    if (gl_GlobalInvocationID.x > 0 && gl_GlobalInvocationID.y < NumParticles.y - 1) {
+        v = PositionIn[Index + NumParticles.x - 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthDiag);
+    }
+    //Top Right
+    if (gl_GlobalInvocationID.x < NumParticles.x - 1 && gl_GlobalInvocationID.y < NumParticles.y - 1) {
+        v = PositionIn[Index + NumParticles.x + 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthDiag);
+    }
+    //Bottom Left
+    if (gl_GlobalInvocationID.x > 0 && gl_GlobalInvocationID.y > 0) {
+        v = PositionIn[Index - NumParticles.x - 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthDiag);
+    }
+    //Bottom Right
+    if (gl_GlobalInvocationID.x < NumParticles.x - 1 && gl_GlobalInvocationID.y > 0) {
+        v = PositionIn[Index - NumParticles.x - 1].xyz - p;
+        Force += normalize(v) * SpringK * (length(v) - RestLengthDiag);
+    }
+
+    vec3 Vel = vec3(VelocityIn[Index]);
+    Force += -Vel * DampingConst; //(Change the velocity depending on the forces applied)
+
+    //Apply semi-implicit Euler Integrator (?????)
+    vec3 a = Force * ParticleInvMass;  //f=ma ie  a = f/m
+    vec3 NewVelocity = Vel + a * DeltaT;
+
+    PositionOut[Index] = vec4(p + NewVelocity * DeltaT + 0.5 * a * DeltaT * DeltaT, 1.0);
+
+    VelocityOut[Index] = vec4(NewVelocity, 1.0);
+}
