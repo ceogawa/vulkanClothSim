@@ -62,10 +62,17 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 const uint32_t GRID_SIZE_X = 50;
 const uint32_t GRID_SIZE_Y = 50;
 
+bool clothSpinning = false; //Bit of a misnomer, but spins the cloth
+int flipGrav = 1;
+
 const std::string MODEL_PATH = "../resources/models/clothplane.obj";
 //const std::string MODEL_PATH = "../resources/models/sphereWTex.obj";
 
-const std::string TEXTURE_PATH = "../resources/textures/vox.png";
+//const std::string TEXTURE_PATH = "../resources/textures/quilt.jpg";
+const std::string TEXTURE_PATH = "../resources/textures/horse.png";
+//const std::string TEXTURE_PATH = "../resources/textures/vox.png";
+//const std::string TEXTURE_PATH = "../resources/textures/cp.png";
+
 
 //MVP 
 struct UniformBufferObject {
@@ -247,12 +254,38 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr); // init default window
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-        //glfwSetKeyCallback(window, keyCallback);
+        glfwSetKeyCallback(window, keyCallback);
+        
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
         auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
         app->framebufferResized = true;
+    }
+
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+        auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+
+        if (action == GLFW_PRESS) {
+            switch (key) {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+
+                // Example: add your own controls here
+                // case GLFW_KEY_SPACE:
+                //     app->togglePause();
+                //     break;
+            case GLFW_KEY_R:
+                clothSpinning = !clothSpinning;
+                break;
+            case GLFW_KEY_G:
+                flipGrav *= -1;
+                break;
+            default:
+                break;
+            }
+        }
     }
 
     // creates instance of vulkan (connection between app and the Vulkan library)
@@ -835,7 +868,7 @@ private:
         rasterizer.rasterizerDiscardEnable = VK_FALSE; // draw to framebuffer
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL; // polygon draw fill mode
         rasterizer.lineWidth = 1.0f;
-        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+        rasterizer.cullMode = VK_CULL_MODE_NONE; //Cull mode none for 2d Plane :)
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         // alters depth value (set to defaults, not using)
         rasterizer.depthBiasEnable = VK_FALSE;
@@ -1656,14 +1689,25 @@ private:
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
+        float spinTime = 0;
+
+        if (clothSpinning) {
+            spinTime += time;
+        }
         UniformBufferObject ubo{};
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(115.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-
+       
+        ubo.model = glm::rotate(glm::mat4(1.0f), spinTime * glm::radians(20.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.model = ubo.model * glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        
+       
+        ubo.model = ubo.model * glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 2.0f, 0.0f));
+        ubo.model = ubo.model * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f, 0.5f, 0.5f));
 
         //ubo.model = glm::scale(ubo.model, glm::vec3(0.5, 0.5, 0.5)); 
-        ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 9.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 20.0f);
+        ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 15.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+        //AHHHH I FLIPPED THE CAMERA UPSIDE DOWN IM SCARED IM SORRY CLAIRE
+        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 40.0f);
         ubo.proj[1][1] *= -1;
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -1689,8 +1733,8 @@ private:
         float restHoriz = dx;
         float restVert = dy;
         float restDiag = glm::length(glm::vec2(dx, dy));
-
-        params.gravity = glm::vec3(0.0f, -9.8f, 0.0f);
+        
+        params.gravity = glm::vec3(0.0f, -9.8f * flipGrav, 0.0f);
         params.particleMass = 1.0f;
         params.springK = 500.0f;
         params.restLengthVert = restVert;
@@ -1699,6 +1743,8 @@ private:
         params.dampingConst = 0.5f;
         params.particleInvMass = 1.0f / params.particleMass;
         params.deltaT = 0.016f; // ~60 FPS fixed timestep
+        //params.deltaT = 0.02f; // ~60 FPS fixed timestep
+
 
         memcpy(simParamsMapped, &params, sizeof(params));
     }
@@ -2110,7 +2156,8 @@ private:
                 v.pos = glm::vec3(
                     (fx - 0.5f) * 5.0f,   // width of ~5 units
                     (fy - 0.5f) * 5.0f,   // height of ~5 units
-                    0.0f);
+                    (fy - 0.5f + fx - 0.5f) * 5.0f //Generate with a diagonal z component to get some spin
+                );
 
                 v.color = glm::vec3(1.0f, 1.0f, 1.0f);
                 v.texCoord = glm::vec2(fx, fy);
