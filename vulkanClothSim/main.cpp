@@ -47,9 +47,6 @@
 // Validation layers are optional components that hook into Vulkan function calls to apply additional operations.
 //  - help us with error handling
 
-
-
-
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2; 
@@ -61,15 +58,7 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
-    alignas(16) glm::vec3 Gravity = glm::vec3(0, -10, 0); //Vulkan y is upsidown, maybe change?
-    alignas(4) float ParticleMass = 0.1;
-    alignas(4) float ParticleInvMass = 1.0 / 0.1; //Inverse Mass
-    alignas(4) float SpringK = 2000.0;
-    alignas(4) float RestLengthHoriz;
-    alignas(4) float RestLengthVert;
-    alignas(4) float RestLengthDiag;
-    alignas(4) float DeltaT = 0.000005;
-    alignas(4) float DampingConst = 0.1;
+
 };
 
 const std::vector<Vertex> vertices = {
@@ -930,15 +919,7 @@ private:
             throw std::runtime_error("failed to create compute pipeline!");
         }
 
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
-
-        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create compute pipeline layout!");
-        }
-
+        vkDestroyShaderModule(device, computeShaderModule, nullptr);
     }
 
     void createShaderStorageBuffers() {
