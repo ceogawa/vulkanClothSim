@@ -4,15 +4,6 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec3 Gravity = vec3(0, -10, 0); //Vulkan y is upsidown, maybe change?
-    float ParticleMass = 0.1; 
-    float ParticleInvMass = 1.0 / 0.1; //Inverse Mass
-    float SpringK = 2000.0;
-    float RestLengthHoriz;
-    float RestLengthVert;
-    float RestLengthDiag;
-    float DeltaT = 0.000005;
-    float DampingConst = 0.1;
 } ubo;
 
 

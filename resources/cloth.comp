@@ -1,6 +1,6 @@
 //Copied from the OpenGL implementation video, will need to be adjusted to fit Vulkan
-//Basically use as sudo code :)
 #version 450
+//Basically use as sudo code :)
 
 layout(local_size_x = 10, local_size_y = 10) in
 //number of shader invocations in a given work group
