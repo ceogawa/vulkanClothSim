@@ -59,6 +59,9 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2; 
 
+const uint32_t GRID_SIZE_X = 50;
+const uint32_t GRID_SIZE_Y = 50;
+
 const std::string MODEL_PATH = "../resources/models/clothplane.obj";
 //const std::string MODEL_PATH = "../resources/models/sphereWTex.obj";
 
@@ -71,6 +74,22 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+};
+
+struct SimParams {
+    //16 byte
+    alignas(16) glm::vec3 gravity;
+    float particleMass;
+    //16 byte
+    float springK;
+    float restLengthVert;
+    float restLengthHoriz;
+    float restLengthDiag;
+    //16 byte
+    float dampingConst;
+    float particleInvMass;
+    float deltaT;
+    float pad; // padding to 16-byte multiple
 };
 
 
@@ -160,6 +179,8 @@ private:
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
 
+
+
     // img variables
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
@@ -170,6 +191,24 @@ private:
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
+
+    // compute shader resources
+    VkPipeline computePipeline;
+    VkPipelineLayout computePipelineLayout;
+    VkDescriptorSetLayout computeDescriptorSetLayout;
+    VkDescriptorPool computeDescriptorPool;
+    VkDescriptorSet computeDescriptorSet;
+
+    // Simulation buffers for compute shader
+    VkBuffer posBuffer;
+    VkDeviceMemory posBufferMemory;
+    VkBuffer velBuffer;
+    VkDeviceMemory velBufferMemory;
+
+    //Simulation data UBO for compute shader
+    VkBuffer simParamsBuffer;
+    VkDeviceMemory simParamsBufferMemory;
+    void* simParamsMapped = nullptr;
 
     //Semaphores and fences are the main advantage of Vulkan, gives us control of the order for all processes
     //Semaphores----
@@ -891,6 +930,40 @@ private:
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
 
     }
+
+    void createComputePipeline() {
+        auto compShaderCode = readFile("../resources/comp.spv");
+        VkShaderModule compShaderModule = createShaderModule(compShaderCode);
+
+        VkPipelineShaderStageCreateInfo stageInfo{};
+        stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stageInfo.module = compShaderModule;
+        stageInfo.pName = "main";
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &computeDescriptorSetLayout;
+        layoutInfo.pushConstantRangeCount = 0;
+        layoutInfo.pPushConstantRanges = nullptr;
+
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create compute pipeline layout!");
+        }
+
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.stage = stageInfo;
+        pipelineInfo.layout = computePipelineLayout;
+
+        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create compute pipeline!");
+        }
+
+        vkDestroyShaderModule(device, compShaderModule, nullptr);
+    }
+
    
     // compute at runtime (const) bytecode array
     VkShaderModule createShaderModule(const std::vector<char>& code) {
@@ -1028,7 +1101,87 @@ private:
             throw std::runtime_error("failed to begin recording command buffer!");
         }
 
+        //Compute Pass update pos and vel
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        vkCmdBindDescriptorSets(
+            commandBuffer,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            computePipelineLayout,
+            0, 1,
+            &computeDescriptorSet,
+            0, nullptr
+        );
 
+        const uint32_t localSizeX = 10;
+        const uint32_t localSizeY = 10;
+        const uint32_t groupCountX = GRID_SIZE_X / localSizeX; // 50 / 10 = 5
+        const uint32_t groupCountY = GRID_SIZE_Y / localSizeY; // 50 / 10 = 5
+
+
+        vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
+        
+        // --- 2) Barrier: compute writes -> transfer read on posBuffer ---
+        VkBufferMemoryBarrier posToTransfer{};
+        posToTransfer.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        posToTransfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        posToTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        posToTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        posToTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        posToTransfer.buffer = posBuffer;
+        posToTransfer.offset = 0;
+        posToTransfer.size = VK_WHOLE_SIZE;
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0, nullptr,
+            1, &posToTransfer,
+            0, nullptr
+        );
+
+        // --- 3) Copy positions into vertex buffer ---
+        std::vector<VkBufferCopy> copyRegions(vertices.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            copyRegions[i].srcOffset = i * sizeof(glm::vec4);   // posBuffer is tightly packed vec4s
+            copyRegions[i].dstOffset = i * sizeof(Vertex);      // vertexBuffer has Vertex stride
+            copyRegions[i].size = sizeof(glm::vec4);       // copy full vec4 (x,y,z,w)
+            // If your Vertex::pos is exactly 3 floats with no padding, you can use sizeof(glm::vec3) instead.
+        }
+
+        vkCmdCopyBuffer(
+            commandBuffer,
+            posBuffer,
+            vertexBuffer,
+            static_cast<uint32_t>(copyRegions.size()),
+            copyRegions.data()
+        );
+
+        // --- 4) Barrier: transfer writes -> vertex input reads on vertexBuffer ---
+        VkBufferMemoryBarrier vbToVertex{};
+        vbToVertex.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        vbToVertex.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vbToVertex.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        vbToVertex.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vbToVertex.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vbToVertex.buffer = vertexBuffer;
+        vbToVertex.offset = 0;
+        vbToVertex.size = VK_WHOLE_SIZE;
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            0,
+            0, nullptr,
+            1, &vbToVertex,
+            0, nullptr
+        );
+
+
+
+        //Graphics Pass
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass = renderPass;
@@ -1325,7 +1478,7 @@ private:
         vkUnmapMemory(device, stagingBufferMemory);
 
         //VK_BUFFER_USAGE_TRANSFER_DST_BIT Lets the buffer we're creating be a destination for mem transfer operations
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
 
         //Copying buffer for better preformence sending the vertex buffer
         copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
@@ -1355,6 +1508,63 @@ private:
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
 
+    }
+
+    void createSimulationBuffers() {
+        //For Compute shader simulations
+        VkDeviceSize bufferSize = sizeof(glm::vec4) * vertices.size();
+
+        // Staging buffer for initialization
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        createBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer, stagingBufferMemory
+        );
+
+        // ---- Initialize positions from vertex positions ----
+        {
+            std::vector<glm::vec4> initialPos(vertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                initialPos[i] = glm::vec4(vertices[i].pos, 1.0f);
+            }
+
+            void* data;
+            vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+            memcpy(data, initialPos.data(), (size_t)bufferSize);
+            vkUnmapMemory(device, stagingBufferMemory);
+        }
+
+        // Device-local position buffer (SSBO)
+        createBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            posBuffer, posBufferMemory
+        );
+        copyBuffer(stagingBuffer, posBuffer, bufferSize);
+
+        // ---- Initialize velocities to zero ----
+        {
+            std::vector<glm::vec4> initialVel(vertices.size(), glm::vec4(0.0f));
+            void* data;
+            vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+            memcpy(data, initialVel.data(), (size_t)bufferSize);
+            vkUnmapMemory(device, stagingBufferMemory);
+        }
+
+        createBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            velBuffer, velBufferMemory
+        );
+        copyBuffer(stagingBuffer, velBuffer, bufferSize);
+
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 
     void createDescriptorSetLayout() {
@@ -1387,6 +1597,42 @@ private:
 
     }
 
+
+
+    void createComputeDescriptorSetLayout() {
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+
+        // binding 0: SimParams UBO
+        bindings[0].binding = 0;
+        bindings[0].descriptorCount = 1;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[0].pImmutableSamplers = nullptr;
+        bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        // binding 1: positions SSBO
+        bindings[1].binding = 1;
+        bindings[1].descriptorCount = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[1].pImmutableSamplers = nullptr;
+        bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        // binding 2: velocities SSBO
+        bindings[2].binding = 2;
+        bindings[2].descriptorCount = 1;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[2].pImmutableSamplers = nullptr;
+        bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        VkDescriptorSetLayoutCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        info.bindingCount = static_cast<uint32_t>(bindings.size());
+        info.pBindings = bindings.data();
+
+        if (vkCreateDescriptorSetLayout(device, &info, nullptr, &computeDescriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create compute descriptor set layout!");
+        }
+    }
+
     void createUniformBuffers() {
         //Creating the Uniform buffer object to allow for global variables between GPU & CPU
         VkDeviceSize bufferSize = sizeof(UniformBufferObject);
@@ -1402,6 +1648,8 @@ private:
         }
     }
 
+
+
     void updateUniformBuffer(uint32_t currentImage) {
         static auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -1410,7 +1658,7 @@ private:
 
         UniformBufferObject ubo{};
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(115.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
 
         //ubo.model = glm::scale(ubo.model, glm::vec3(0.5, 0.5, 0.5)); 
@@ -1421,6 +1669,39 @@ private:
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
 
+    void createSimParamsBuffer() {
+        VkDeviceSize size = sizeof(SimParams);
+        createBuffer(
+            size,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            simParamsBuffer, simParamsBufferMemory
+        );
+        vkMapMemory(device, simParamsBufferMemory, 0, size, 0, &simParamsMapped);
+    }
+
+    void updateSimParams() {
+        SimParams params{};
+
+        float extent = 5.0f;
+        float dx = extent / (GRID_SIZE_X - 1);
+        float dy = extent / (GRID_SIZE_Y - 1);
+        float restHoriz = dx;
+        float restVert = dy;
+        float restDiag = glm::length(glm::vec2(dx, dy));
+
+        params.gravity = glm::vec3(0.0f, -9.8f, 0.0f);
+        params.particleMass = 1.0f;
+        params.springK = 500.0f;
+        params.restLengthVert = restVert;
+        params.restLengthHoriz = restHoriz;
+        params.restLengthDiag = restDiag;
+        params.dampingConst = 0.5f;
+        params.particleInvMass = 1.0f / params.particleMass;
+        params.deltaT = 0.016f; // ~60 FPS fixed timestep
+
+        memcpy(simParamsMapped, &params, sizeof(params));
+    }
 
     void createDescriptorPool() {
         std::array<VkDescriptorPoolSize, 2> poolSizes{};
@@ -1439,6 +1720,85 @@ private:
             throw std::runtime_error("failed to create descriptor pool!");
         }
     }
+
+    void createComputeDescriptorPool() {
+        std::array<VkDescriptorPoolSize, 3> poolSizes{};
+
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSizes[0].descriptorCount = 1;
+
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[1].descriptorCount = 1;
+
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[2].descriptorCount = 1;
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        poolInfo.maxSets = 1;
+
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &computeDescriptorPool) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create compute descriptor pool!");
+        }
+    }
+
+    void createComputeDescriptorSet() {
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = computeDescriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &computeDescriptorSetLayout;
+
+        if (vkAllocateDescriptorSets(device, &allocInfo, &computeDescriptorSet) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate compute descriptor set!");
+        }
+
+        VkDescriptorBufferInfo simInfo{};
+        simInfo.buffer = simParamsBuffer;
+        simInfo.offset = 0;
+        simInfo.range = sizeof(SimParams);
+
+        VkDescriptorBufferInfo posInfo{};
+        posInfo.buffer = posBuffer;
+        posInfo.offset = 0;
+        posInfo.range = VK_WHOLE_SIZE;
+
+        VkDescriptorBufferInfo velInfo{};
+        velInfo.buffer = velBuffer;
+        velInfo.offset = 0;
+        velInfo.range = VK_WHOLE_SIZE;
+
+        std::array<VkWriteDescriptorSet, 3> writes{};
+
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = computeDescriptorSet;
+        writes[0].dstBinding = 0;
+        writes[0].dstArrayElement = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &simInfo;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = computeDescriptorSet;
+        writes[1].dstBinding = 1;
+        writes[1].dstArrayElement = 0;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo = &posInfo;
+
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = computeDescriptorSet;
+        writes[2].dstBinding = 2;
+        writes[2].dstArrayElement = 0;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].descriptorCount = 1;
+        writes[2].pBufferInfo = &velInfo;
+
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+
 
     void createDescriptorSets() {
         std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
@@ -1731,6 +2091,55 @@ private:
         }
     }
 
+    void generateGrid() {
+        const uint32_t width = GRID_SIZE_X;
+        const uint32_t height = GRID_SIZE_Y;
+
+        vertices.clear();
+        indices.clear();
+        vertices.resize(width * height);
+
+        // Build vertices
+        for (uint32_t y = 0; y < height; ++y) {
+            for (uint32_t x = 0; x < width; ++x) {
+                float fx = static_cast<float>(x) / (width - 1);
+                float fy = static_cast<float>(y) / (height - 1);
+
+                Vertex v{};
+                // Local-space position on a flat plane, centered around origin
+                v.pos = glm::vec3(
+                    (fx - 0.5f) * 5.0f,   // width of ~5 units
+                    (fy - 0.5f) * 5.0f,   // height of ~5 units
+                    0.0f);
+
+                v.color = glm::vec3(1.0f, 1.0f, 1.0f);
+                v.texCoord = glm::vec2(fx, fy);
+
+                vertices[y * width + x] = v;
+            }
+        }
+
+        // Build indices (two triangles per quad)
+        for (uint32_t y = 0; y < height - 1; ++y) {
+            for (uint32_t x = 0; x < width - 1; ++x) {
+                uint32_t i0 = y * width + x;
+                uint32_t i1 = y * width + (x + 1);
+                uint32_t i2 = (y + 1) * width + x;
+                uint32_t i3 = (y + 1) * width + (x + 1);
+
+                // Triangle 1
+                indices.push_back(i0);
+                indices.push_back(i2);
+                indices.push_back(i1);
+
+                // Triangle 2
+                indices.push_back(i1);
+                indices.push_back(i2);
+                indices.push_back(i3);
+            }
+        }
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
@@ -1742,6 +2151,7 @@ private:
         createRenderPass(); 
         createDescriptorSetLayout();
         createGraphicsPipeline(); 
+
         createCommandPool();
         createDepthResources();
         createFramebuffers();
@@ -1749,14 +2159,25 @@ private:
         createTextureImageView();
         createTextureSampler();
 
-        loadModel();
+        generateGrid(); //Creates 50x50 cloth
 
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
 
+        createSimulationBuffers(); //Compute Shader vertex and velocity data 
+        createSimParamsBuffer(); //UBO data like Gravity, Spring Constant, ETC.
+
         createDescriptorPool();
         createDescriptorSets();
+
+
+        //Compute Shader stuff
+        createComputeDescriptorSetLayout();
+        createComputePipeline();
+        createComputeDescriptorPool();
+        createComputeDescriptorSet();
+
         createCommandBuffers();
         createSyncObjects();
     }
@@ -1773,9 +2194,7 @@ private:
         //Pause CPU until fences are cleared so we have the async info we need to continue
         //Note: we need to create the fence signaled already so the first drawFrame call can get past this step
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-        //Takes an array of fences and waits for one or all. VK_TRUE here indicates waiting for all, UINT64_MAX effectivly disables timeout
-        vkResetFences(device, 1, &inFlightFences[currentFrame]); //Resets fence to unsignaled state
-
+        
         //Getting the next frame from the swap chain:
         uint32_t imageIndex;
         //vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -1791,6 +2210,7 @@ private:
 
         //Updates the MVP for model changes w/ time
         updateUniformBuffer(currentFrame);
+        updateSimParams();
 
         // Only reset the fence if we are submitting work
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
@@ -1864,6 +2284,21 @@ private:
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr); 
         vkDestroyRenderPass(device, renderPass, nullptr);
+
+        //Cleanup compute
+        vkDestroyPipeline(device, computePipeline, nullptr);
+        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+        vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
+        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
+
+        vkDestroyBuffer(device, posBuffer, nullptr);
+        vkFreeMemory(device, posBufferMemory, nullptr);
+
+        vkDestroyBuffer(device, velBuffer, nullptr);
+        vkFreeMemory(device, velBufferMemory, nullptr);
+
+        vkDestroyBuffer(device, simParamsBuffer, nullptr);
+        vkFreeMemory(device, simParamsBufferMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
