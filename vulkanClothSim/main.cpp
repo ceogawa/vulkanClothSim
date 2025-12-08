@@ -8,10 +8,14 @@
 #include <glm/vec4.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/glm.hpp>
+//#include <ext/tinyobjloader.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/gtc/matrix_transform.hpp>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -24,6 +28,7 @@
 #include <cstdlib>
 #include <vector>
 #include <optional>
+#include <unordered_map>
 #include <set>
 #include <cstdint> // Necessary for uint32_t
 #include <limits> // Necessary for std::numeric_limits
@@ -54,6 +59,9 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2; 
 
+const std::string MODEL_PATH = "../resources/models/clothplain.obj";
+const std::string TEXTURE_PATH = "../resources/textures/vox.png";
+
 //MVP 
 struct UniformBufferObject {
     //Alignas is a c++ feature to make sure that the uniforms we are sending to the shader are aligned properlly.
@@ -63,26 +71,37 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
-const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
 
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-};
+namespace std {
+    template<> struct hash<Vertex> {
+        size_t operator()(Vertex const& vertex) const {
+            return ((hash<glm::vec3>()(vertex.pos) ^
+                (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+                (hash<glm::vec2>()(vertex.texCoord) << 1);
+        }
+    };
+}
 
-
-//Index Buffer Data
-//Can use uint32_t instead if you have more than 65535 unique vertices
-const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0,
-    4, 5, 6, 6, 7, 4
-};
-
+//const std::vector<Vertex> vertices = {
+//    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+//    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+//    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+//    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+//
+//    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+//    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+//    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+//    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+//};
+//
+//
+////Index Buffer Data
+////Can use uint32_t instead if you have more than 65535 unique vertices
+//const std::vector<uint16_t> indices = {
+//    0, 1, 2, 2, 3, 0,
+//    4, 5, 6, 6, 7, 4
+//};
+//
 
 // configuration variables to specify which layers to enable/disable
 #ifdef NDEBUG
@@ -128,9 +147,10 @@ private:
     std::vector<VkDescriptorSet> descriptorSets;
 
 
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
 
@@ -148,7 +168,6 @@ private:
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
-
 
     //Semaphores and fences are the main advantage of Vulkan, gives us control of the order for all processes
     //Semaphores----
@@ -171,6 +190,12 @@ private:
     };
 
 
+    //void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    //    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+    //        glfwSetWindowShouldClose(window, true);
+    //    }
+    //}
+
     void initWindow() {
         glfwInit(); // inits the library
 
@@ -181,6 +206,7 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr); // init default window
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+        //glfwSetKeyCallback(window, keyCallback);
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
@@ -1042,8 +1068,8 @@ private:
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-
+        //vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
         //vertecies.size() is how many vertices to draw
@@ -1382,6 +1408,7 @@ private:
 
         UniformBufferObject ubo{};
         ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        //ubo.model = glm::scale(ubo.model, glm::vec3(0.5, 0.5, 0.5)); 
         ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
@@ -1463,7 +1490,8 @@ private:
         // using command buffers, load an image and upload it into a Vulkan image object
         int texWidth, texHeight, texChannels;
         // use stbi_image to load in image to buffers
-        stbi_uc* pixels = stbi_load("../resources/textures/vox.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        //stbi_uc* pixels = stbi_load("../resources/textures/vox.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         if (!pixels) {
@@ -1618,6 +1646,86 @@ private:
 
     }
 
+    /*void loadModel() {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, MODEL_PATH.c_str())) {
+            throw std::runtime_error(err);
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+        for (const auto& shape : shapes) {
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex{};
+
+                vertex.pos = {
+                    attrib.vertices[3 * index.vertex_index + 0],
+                    attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2]
+                };
+
+                vertex.texCoord = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+
+                vertex.color = { 1.0f, 1.0f, 1.0f };
+
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
+        }
+    }*/
+
+    void loadModel() {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, MODEL_PATH.c_str())) {
+            throw std::runtime_error(err);
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+        std::cout << shapes.size() << "\n";
+
+        for (const auto& shape : shapes) {
+            for (const auto& index : shape.mesh.indices) {
+                Vertex vertex{};
+
+                vertex.pos = {
+                    attrib.vertices[3 * index.vertex_index + 0],
+                    attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2]
+                };
+
+                vertex.texCoord = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+
+                vertex.color = { 1.0f, 1.0f, 1.0f };
+
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
+        }
+    }
+
     // connects application to vulkan
     void initVulkan() {
         createInstance();
@@ -1635,9 +1743,13 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
+
+        loadModel();
+
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
+
         createDescriptorPool();
         createDescriptorSets();
         createCommandBuffers();
