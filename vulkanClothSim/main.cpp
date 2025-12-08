@@ -1793,7 +1793,7 @@ private:
         createShaderStorageBuffers();
         createUniformBuffers();
         createDescriptorPool();
-        createDescriptorSets();
+        createComputeDescriptorSets();
         createCommandBuffers();
         createComputeCommandBuffers();
         createSyncObjects();
