@@ -15,7 +15,8 @@
 #include <algorithm> // Necessary for std::clamp
 #include <fstream> // Necessary for file management
 #include <array>
-
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 struct Vertex {
     glm::vec3 pos;
@@ -50,5 +51,9 @@ struct Vertex {
         attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
 
         return attributeDescriptions;
+    }
+
+    bool operator==(const Vertex& other) const {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
     }
 };
