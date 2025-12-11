@@ -30,6 +30,7 @@
 #include <optional>
 #include <unordered_map>
 #include <set>
+#include <filesystem>
 #include <cstdint> // Necessary for uint32_t
 #include <limits> // Necessary for std::numeric_limits
 #include <algorithm> // Necessary for std::clamp
@@ -59,10 +60,31 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2; 
 
-const std::string MODEL_PATH = "../resources/models/clothplane.obj";
+std::vector<std::string> meshes;
+
+
+
+const std::string MODELS_FOLDER_PATH = "../resources/models";
+const std::string MODEL_PATH = "../resources/models/TenCent.obj";
 //const std::string MODEL_PATH = "../resources/models/sphereWTex.obj";
 
-const std::string TEXTURE_PATH = "../resources/textures/vox.png";
+const std::string TEXTURE_PATH = "../resources/textures/Tencent.jpg";
+
+//Movement Variables
+bool rotate_right = false;
+bool rotate_left = false;
+bool move_down = false;
+bool move_up = false;
+
+bool zoom_in = false;
+bool zoom_out = false;
+
+glm::vec3 eyepos = glm::vec3(0.0f, 0.0f, 9.0f);
+float viewrot = 0;
+
+glm::vec3 lookpos = glm::vec3(0.0f);
+glm::vec3 meshpos = glm::vec3(0.0f);
+
 
 //MVP 
 struct UniformBufferObject {
@@ -192,12 +214,55 @@ private:
     };
 
 
-    //void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    //    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-    //        glfwSetWindowShouldClose(window, true);
-    //    }
-    //}
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+        auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
 
+        if (action == GLFW_PRESS) {
+            switch (key) {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+            case GLFW_KEY_RIGHT:
+                rotate_right = true;
+                break;
+            case GLFW_KEY_LEFT:
+                rotate_left = true;
+                break;
+            case GLFW_KEY_UP:
+                zoom_in = true;
+                break;
+            case GLFW_KEY_DOWN:
+                zoom_out = true;
+                break;
+            case GLFW_KEY_W:
+                meshpos += glm::vec3(0.0f, 0.5f, 0.0f);
+                break;
+            case GLFW_KEY_S:
+                meshpos -= glm::vec3(0.0f, 0.5f, 0.0f);
+                break;
+            default:
+                break;
+            }
+        }
+        if (action == GLFW_RELEASE) {
+            switch (key) {
+            case GLFW_KEY_RIGHT:
+                rotate_right = false;
+                break;
+            case GLFW_KEY_LEFT:
+                rotate_left = false;
+                break;
+            case GLFW_KEY_UP:
+                zoom_in = false;
+                break;
+            case GLFW_KEY_DOWN:
+                zoom_out = false;
+                break;
+            default:
+                break;
+            }
+        }
+    }
     void initWindow() {
         glfwInit(); // inits the library
 
@@ -208,7 +273,7 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr); // init default window
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-        //glfwSetKeyCallback(window, keyCallback);
+        glfwSetKeyCallback(window, keyCallback);
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
@@ -1410,11 +1475,32 @@ private:
 
         UniformBufferObject ubo{};
         //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        ubo.model = glm::mat4(1.0f);
+        ubo.model *= glm::translate(ubo.model, meshpos);
+        
 
+        if (rotate_left) {
+            viewrot += 10;
+        } 
+        if (rotate_right) {
+            viewrot -= 10;
+        }
+        if (zoom_in) {
+            if (eyepos.z > 0.5f) {
+                eyepos -= glm::vec3(0.0f, 0.0f, 0.2f);
+            }
+        }
+        if (zoom_out) {
+            if (eyepos.z <  15.0f) {
+                eyepos += glm::vec3(0.0f, 0.0f, 0.2f);
+            }
+        }
 
         //ubo.model = glm::scale(ubo.model, glm::vec3(0.5, 0.5, 0.5)); 
-        ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 9.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.view = glm::lookAt(eyepos, lookpos, glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.view = ubo.view * glm::rotate(glm::mat4(1.0f), glm::radians(viewrot), glm::vec3(0.0f, 1.0f, 0.0f));
+
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 20.0f);
         ubo.proj[1][1] *= -1;
 
@@ -1690,13 +1776,29 @@ private:
         }
     }*/
 
-    void loadModel() {
+    void initMeshes() {
+        try {
+            // Use directory_iterator to go through all entries in the directory
+            for (const auto& entry : std::filesystem::directory_iterator(MODELS_FOLDER_PATH)) {
+                // entry is of type std::filesystem::directory_entry
+                // entry.path() returns a std::filesystem::path object
+
+                // To get just the filename (without the full path):
+                std::cout << "Filename: " << entry.path().filename().string() << std::endl;
+            }
+        }
+        catch (const std::filesystem::filesystem_error& e) {
+            std::cerr << "Filesystem error: " << e.what() << std::endl;
+        }
+    }
+
+    void loadModel(std::string modelpath) {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
         std::string err;
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, MODEL_PATH.c_str())) {
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, modelpath.c_str())) {
             throw std::runtime_error(err);
         }
 
@@ -1749,7 +1851,8 @@ private:
         createTextureImageView();
         createTextureSampler();
 
-        loadModel();
+        initMeshes();
+        loadModel(MODEL_PATH);
 
         createVertexBuffer();
         createIndexBuffer();
