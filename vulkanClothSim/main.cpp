@@ -30,7 +30,6 @@
 #include <optional>
 #include <unordered_map>
 #include <set>
-#include <filesystem>
 #include <cstdint> // Necessary for uint32_t
 #include <limits> // Necessary for std::numeric_limits
 #include <algorithm> // Necessary for std::clamp
@@ -60,31 +59,36 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2; 
 
-std::vector<std::string> meshes;
+//const std::string MODEL_PATH = "../resources/models/TenCent.obj";
+//const std::string TEXTURE_PATH = "../resources/textures/Tencent.jpg";
 
+//const std::string MODEL_PATH = "../resources/models/LivingRoom.obj";
+//const std::string TEXTURE_PATH = "../resources/textures/LivingRoom.jpg";
 
+//const std::string MODEL_PATH = "../resources/models/Frida.obj";
+//const std::string TEXTURE_PATH = "../resources/textures/Frida.jpg";
 
-const std::string MODELS_FOLDER_PATH = "../resources/models";
-const std::string MODEL_PATH = "../resources/models/TenCent.obj";
-//const std::string MODEL_PATH = "../resources/models/sphereWTex.obj";
+//const std::string MODEL_PATH = "../resources/models/Theater.obj";
+//const std::string TEXTURE_PATH = "../resources/textures/Theater.jpg";
 
-const std::string TEXTURE_PATH = "../resources/textures/Tencent.jpg";
+//const std::string MODEL_PATH = "../resources/models/Backyard.obj";
+//const std::string TEXTURE_PATH = "../resources/textures/Backyard.jpg";
 
-//Movement Variables
-bool rotate_right = false;
-bool rotate_left = false;
-bool move_down = false;
-bool move_up = false;
+// Movement / camera variables
+glm::vec3 meshpos = glm::vec3(0.0f);              // still used to move the model
 
-bool zoom_in = false;
-bool zoom_out = false;
+// FPS-style camera
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-glm::vec3 eyepos = glm::vec3(0.0f, 0.0f, 9.0f);
-float viewrot = 0;
+// yaw/pitch in degrees
+float yaw = -90.0f;   // facing -Z
+float pitch = 0.0f;
 
-glm::vec3 lookpos = glm::vec3(0.0f);
-glm::vec3 meshpos = glm::vec3(0.0f);
-
+// movement settings
+float cameraSpeed = 3.0f;   // units per second
+float cameraTurnSpeed = 90.0f;  // degrees per second (for arrow keys)
 
 //MVP 
 struct UniformBufferObject {
@@ -213,56 +217,16 @@ private:
         "VK_LAYER_KHRONOS_validation" // bundled layer
     };
 
-
-    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-        auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
-
-        if (action == GLFW_PRESS) {
-            switch (key) {
-            case GLFW_KEY_ESCAPE:
+    static void keyCallback(GLFWwindow * window, int key, int scancode, int action, int mods) {
+            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
-                break;
-            case GLFW_KEY_RIGHT:
-                rotate_right = true;
-                break;
-            case GLFW_KEY_LEFT:
-                rotate_left = true;
-                break;
-            case GLFW_KEY_UP:
-                zoom_in = true;
-                break;
-            case GLFW_KEY_DOWN:
-                zoom_out = true;
-                break;
-            case GLFW_KEY_W:
-                meshpos += glm::vec3(0.0f, 0.5f, 0.0f);
-                break;
-            case GLFW_KEY_S:
-                meshpos -= glm::vec3(0.0f, 0.5f, 0.0f);
-                break;
-            default:
-                break;
             }
-        }
-        if (action == GLFW_RELEASE) {
-            switch (key) {
-            case GLFW_KEY_RIGHT:
-                rotate_right = false;
-                break;
-            case GLFW_KEY_LEFT:
-                rotate_left = false;
-                break;
-            case GLFW_KEY_UP:
-                zoom_in = false;
-                break;
-            case GLFW_KEY_DOWN:
-                zoom_out = false;
-                break;
-            default:
-                break;
+            if (key == GLFW_KEY_K && action == GLFW_PRESS) {
+                
             }
-        }
+
     }
+
     void initWindow() {
         glfwInit(); // inits the library
 
@@ -860,6 +824,7 @@ private:
         rasterizer.depthClampEnable = VK_FALSE; // discards fragments beyond near and far planes
         rasterizer.rasterizerDiscardEnable = VK_FALSE; // draw to framebuffer
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL; // polygon draw fill mode
+        //rasterizer.polygonMode = VK_POLYGON_MODE_LINE; // polygon draw line
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
         rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -1468,44 +1433,91 @@ private:
     }
 
     void updateUniformBuffer(uint32_t currentImage) {
+        // timing
         static auto startTime = std::chrono::high_resolution_clock::now();
+        static auto lastTime = startTime;
 
         auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+        float time = std::chrono::duration<float>(currentTime - startTime).count();
+        float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+        lastTime = currentTime;
 
         UniformBufferObject ubo{};
-        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        //ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
         ubo.model = glm::mat4(1.0f);
-        ubo.model *= glm::translate(ubo.model, meshpos);
-        
+        ubo.model = glm::translate(ubo.model, meshpos);
 
-        if (rotate_left) {
-            viewrot += 10;
-        } 
-        if (rotate_right) {
-            viewrot -= 10;
+        // --- CAMERA MOVEMENT (WASD) ---
+        float velocity = cameraSpeed * deltaTime;
+
+        // move relative to current camera orientation
+        glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            cameraPos += cameraFront * velocity;
         }
-        if (zoom_in) {
-            if (eyepos.z > 0.5f) {
-                eyepos -= glm::vec3(0.0f, 0.0f, 0.2f);
-            }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            cameraPos -= cameraFront * velocity;
         }
-        if (zoom_out) {
-            if (eyepos.z <  15.0f) {
-                eyepos += glm::vec3(0.0f, 0.0f, 0.2f);
-            }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            cameraPos -= cameraRight * velocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            cameraPos += cameraRight * velocity;
         }
 
-        //ubo.model = glm::scale(ubo.model, glm::vec3(0.5, 0.5, 0.5)); 
-        ubo.view = glm::lookAt(eyepos, lookpos, glm::vec3(0.0f, 1.0f, 0.0f));
-        ubo.view = ubo.view * glm::rotate(glm::mat4(1.0f), glm::radians(viewrot), glm::vec3(0.0f, 1.0f, 0.0f));
+        // optional: vertical movement (Q/E)
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+            cameraPos -= cameraUp * velocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+            cameraPos += cameraUp * velocity;
+        }
 
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 20.0f);
-        ubo.proj[1][1] *= -1;
+        // --- CAMERA ROTATION (yaw/pitch via arrow keys) ---
+        float turnVelocity = cameraTurnSpeed * deltaTime;
+
+        if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+            yaw -= turnVelocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+            yaw += turnVelocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+            pitch += turnVelocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+            pitch -= turnVelocity;
+        }
+
+        // clamp pitch to avoid flipping
+        if (pitch > 89.0f)  pitch = 89.0f;
+        if (pitch < -89.0f) pitch = -89.0f;
+
+        // recompute cameraFront from yaw/pitch
+        glm::vec3 front;
+        front.x = glm::cos(glm::radians(yaw)) * glm::cos(glm::radians(pitch));
+        front.y = glm::sin(glm::radians(pitch));
+        front.z = glm::sin(glm::radians(yaw)) * glm::cos(glm::radians(pitch));
+        cameraFront = glm::normalize(front);
+
+        // --- VIEW / PROJECTION MATRICES ---
+        ubo.view = glm::lookAt(
+            cameraPos,
+            cameraPos + cameraFront,
+            cameraUp
+        );
+
+        ubo.proj = glm::perspective(
+            glm::radians(45.0f),
+            swapChainExtent.width / (float)swapChainExtent.height,
+            0.1f,
+            20.0f
+        );
+        ubo.proj[1][1] *= -1.0f;  // Vulkan clip space Y flip
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
+
 
 
     void createDescriptorPool() {
@@ -1776,29 +1788,13 @@ private:
         }
     }*/
 
-    void initMeshes() {
-        try {
-            // Use directory_iterator to go through all entries in the directory
-            for (const auto& entry : std::filesystem::directory_iterator(MODELS_FOLDER_PATH)) {
-                // entry is of type std::filesystem::directory_entry
-                // entry.path() returns a std::filesystem::path object
-
-                // To get just the filename (without the full path):
-                std::cout << "Filename: " << entry.path().filename().string() << std::endl;
-            }
-        }
-        catch (const std::filesystem::filesystem_error& e) {
-            std::cerr << "Filesystem error: " << e.what() << std::endl;
-        }
-    }
-
-    void loadModel(std::string modelpath) {
+    void loadModel() {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
         std::string err;
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, modelpath.c_str())) {
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, MODEL_PATH.c_str())) {
             throw std::runtime_error(err);
         }
 
@@ -1851,8 +1847,7 @@ private:
         createTextureImageView();
         createTextureSampler();
 
-        initMeshes();
-        loadModel(MODEL_PATH);
+        loadModel();
 
         createVertexBuffer();
         createIndexBuffer();
