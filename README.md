@@ -13,10 +13,10 @@ Download and install latest version of Vulkan SDK
 **Compiling Shaders:** 
 Create a compile.bat file in the resources folder that has the general format of: 
 
-    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.vert -o vert.spv\
-    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.frag -o frag.spv\
-    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.comp -o comp.spv\
-    pause\
+    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.vert -o vert.spv
+    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.frag -o frag.spv
+    C:\Users\pathname\vulkan\Bin\glslc.exe cloth.comp -o comp.spv
+    pause
 
 Run the bat file to compile the vertex, fragment, and compute shaders into SPIR-V format 
 
