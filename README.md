@@ -12,6 +12,9 @@ This made changes to the project building and linking- changing it to Cmake inst
 of inate Visual Studio Linker settings. Also means vcpkg is needed, and Cmake is needed.
 You may need to adjust things to fix build/project errors that this may or may not introduce.
 Note: I have the base refactor in a seperate git repo, so feel free to break things as you like 
+
+also, If you want to try and get this working I would back up your local files, the sln depends on
+the vcxproj.user files and such
 :)
 
 Dependencies:
