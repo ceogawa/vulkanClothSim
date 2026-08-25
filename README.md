@@ -19,11 +19,24 @@ Dependencies:
 - GLM
 - Vulkan SDK
 - TinyOBJLoader
+- stb_image.h
+
+CmakeLists.txt and Vcpkg installer shoudl install and link all needed dependancies for you.
 
 To run:
 
 Run Compile.bat to convert cloth.vert, cloth.frag, and cloth.comp into sprv
 
+Compiling Shaders: Create a compile.bat file in the resources folder that has the general format of:
+
+C:\Users\pathname\vulkan\Bin\glslc.exe cloth.vert -o vert.spv
+C:\Users\pathname\vulkan\Bin\glslc.exe cloth.frag -o frag.spv
+C:\Users\pathname\vulkan\Bin\glslc.exe cloth.comp -o comp.spv
+pause
+Run the bat file to compile the vertex, fragment, and compute shaders into SPIR-V format
+
+
 Build project using Cmake
 
 run excecutable from /out/ directory in project
+.\build\x64-release\VulkanBaseProject.exe
