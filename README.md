@@ -17,18 +17,20 @@ also, If you want to try and get this working I would back up your local files, 
 the vcxproj.user files and such
 
 When you first open the project, CMake will run and it will pause on
-[CMake] Fetching registry information from https://github.com/microsoft/vcpkg (HEAD)...
+
+	[CMake] Fetching registry information from https://github.com/microsoft/vcpkg (HEAD)...
+
 For a couple minutes. Just let it load and if there is an error we can solve from there.
 
 Your files should only contain
 
-resources/
-src/
-.gitignore
-CMakeLists.txt
-CMakePresets.json
-README.md
-vcpkg.JSON
+	- resources/
+	- src/
+	- .gitignore
+	- CMakeLists.txt
+	- CMakePresets.json
+	- README.md
+	- vcpkg.JSON
 
 you will need to have an enviroment variable pointing at your downleaded vcpkg
 called VCPKG_ROOT I think
@@ -54,10 +56,10 @@ Run Compile.bat to convert cloth.vert, cloth.frag, and cloth.comp into sprv
 
 Compiling Shaders: Create a compile.bat file in the resources folder that has the general format of:
 
-C:\Users\pathname\vulkan\Bin\glslc.exe cloth.vert -o vert.spv
-C:\Users\pathname\vulkan\Bin\glslc.exe cloth.frag -o frag.spv
-C:\Users\pathname\vulkan\Bin\glslc.exe cloth.comp -o comp.spv
-pause
+	C:\Users\pathname\vulkan\Bin\glslc.exe cloth.vert -o vert.spv
+	C:\Users\pathname\vulkan\Bin\glslc.exe cloth.frag -o frag.spv
+	C:\Users\pathname\vulkan\Bin\glslc.exe cloth.comp -o comp.spv
+	pause
 Run the bat file to compile the vertex, fragment, and compute shaders into SPIR-V format
 
 
