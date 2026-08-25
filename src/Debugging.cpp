@@ -1,7 +1,6 @@
+#include "Debugging.hpp"
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-#include <vector>
+#include <cstring>
 
 bool checkValidationLayerSupport(const std::vector<const char*> validationLayers) {
     uint32_t layerCount;
@@ -27,19 +26,3 @@ bool checkValidationLayerSupport(const std::vector<const char*> validationLayers
 
     return true;
 }
-
-
-//// return the required list of extensions based on whether validation layers are enabled or not:
-//std::vector<const char*> getRequiredExtensions(const bool enableValidationLayers) {
-//    uint32_t glfwExtensionCount = 0;
-//    const char** glfwExtensions;
-//    glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-//
-//    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-//
-//    if (enableValidationLayers) {
-//        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-//    }
-//
-//    return extensions;
-//}

@@ -46,12 +46,12 @@ void main() {
     vec3 p = Position[index].xyz;
 
     // Pinning: fix some vertices at the top row
-    if (iy == numParticles.y - 1u &&
+    if (iy == numParticles.y - 1u/* &&
         (ix == 0u ||
          ix == numParticles.x / 4u ||
          ix == numParticles.x * 2u / 4u ||
          ix == numParticles.x * 3u / 4u ||
-         ix == numParticles.x - 1u)) {
+         ix == numParticles.x - 1u)*/) {
 
         Position[index] = vec4(p, 1.0);
         Velocity[index] = vec4(0.0); // keep pinned still
